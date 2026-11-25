@@ -35,7 +35,17 @@ describe("parsePolymarket", () => {
   it("reads a game, away score first", () => {
     expect(parsePolymarket(JAZZ_AT_CLIPPERS)).toEqual({
       league: "basketball/nba", home: "LAC", away: "UTA", awayScore: 100, homeScore: 93, state: "in", detail: "Q4 09:16",
+      clock: { period: 4, seconds: 556 },
     });
+  });
+
+  it("reads the clock, overtime continuing the period count", () => {
+    expect(parsePolymarket(STARS_AT_KNIGHTS)?.clock).toEqual({ period: 3, seconds: 512 });
+    expect(parsePolymarket({ ...STARS_AT_KNIGHTS, period: "OT", elapsed: "01:24" })?.clock).toEqual({ period: 4, seconds: 84 });
+    expect(parsePolymarket({ ...JAZZ_AT_CLIPPERS, period: "OT" })?.clock?.period).toBe(5);
+    expect(parsePolymarket({ ...JAZZ_AT_CLIPPERS, period: "OT2" })?.clock?.period).toBe(6);
+    expect(parsePolymarket({ ...JAZZ_AT_CLIPPERS, period: "End Q2", elapsed: "" })?.clock).toBeUndefined();
+    expect(parsePolymarket({ ...JAZZ_AT_CLIPPERS, live: false, ended: true, period: "FT" })?.clock).toBeUndefined();
   });
 
   it("maps live and ended to the game state", () => {

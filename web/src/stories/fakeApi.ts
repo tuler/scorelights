@@ -3,7 +3,7 @@
  * server. Each story sets `parameters.api` to override routes; the rest
  * answer from the fixtures below.
  */
-import type { FollowedGame, Game, GameTeam, Group, LeagueCounts, Me, Settings } from "../api.ts";
+import type { ClockState, FollowedGame, Game, GameTeam, Group, LeagueCounts, Me, Settings } from "../api.ts";
 
 /** A route's answer: a JSON body (status 200), `{ status, body }`, or "pending" for a request that never settles. */
 export type FakeReply = unknown;
@@ -163,6 +163,19 @@ export const LEAGUE_COUNTS: LeagueCounts = Object.fromEntries(
   }),
 );
 
+/**
+ * `GET /api/clock` for the followed Chiefs at Chargers game (8:41 in the 3rd), the TV `delaySeconds` behind.
+ * A function, so `at` is the time of each request and the clock ticks in the story.
+ */
+export const clockReply =
+  ({ running = true, delaySeconds = SAVED.delaySeconds, live = 8 * 60 + 41, period = 3 } = {}) =>
+  (): ClockState => ({
+    at: Date.now(),
+    delaySeconds,
+    live: { period, seconds: live, running },
+    tv: { period, seconds: running ? live + delaySeconds : live, running },
+  });
+
 /** What a working Worker answers. */
 export const DEFAULT_ROUTES: FakeRoutes = {
   "GET /api/me": ME_SAVED,
@@ -177,6 +190,9 @@ export const DEFAULT_ROUTES: FakeRoutes = {
   },
   "DELETE /api/game": { ok: true },
   "POST /api/test": { result: 'Played "touchdown" on Living Room for 10s' },
+  "GET /api/clock": clockReply(),
+  "POST /api/sync": { delaySeconds: 23.4, ahead: false },
+  "PUT /api/delay": (_url: URL, body: unknown) => ({ delaySeconds: (body as { delaySeconds: number }).delaySeconds }),
   "DELETE /api/me": { ok: true },
   "POST /auth/signout": { ok: true },
 };

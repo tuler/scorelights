@@ -10,15 +10,19 @@
 import { DurableObject } from "cloudflare:workers";
 import { parseSettings, effectFor, type Settings } from "../config.ts";
 import { colorsFor, play } from "../effects.ts";
-import { resolveLeague, type TeamSide } from "../espn.ts";
+import { resolveLeague, type GameClock, type TeamSide } from "../espn.ts";
 import type { SportsEvent } from "../events.ts";
 import { endsGame, hasLapsed, type FollowedGame } from "../follow.ts";
 import { HueBridge, type LightGroup } from "../hue.ts";
 import { HueRemoteAuth, remoteTransport, type RemoteTokens, type TokenStore } from "../hue-remote.ts";
 import { findNflTeam, NFL_LEAGUE } from "../nfl.ts";
 import { isLate, planEffects, type PlannedEffect } from "../plan.ts";
+import type { ClockReading } from "../timeline.ts";
 import type { Env } from "./env.ts";
 import { POLYMARKET_RELAY } from "./polymarket.ts";
+
+/** The longest TV delay a viewer can set or sync to (seconds). */
+export const MAX_DELAY_SECONDS = 600;
 
 interface Profile {
   id: string;
@@ -107,6 +111,53 @@ export class User extends DurableObject<Env> {
     await this.env.GAMES.getByName(resolveLeague(profile.game.league)).unsubscribe(profile.id);
     await this.ctx.storage.put<Profile>("profile", { ...profile, game: undefined });
     await this.saveQueue([]);
+  }
+
+  /**
+   * The followed game's clock: `live`, the newest the feeds know, and `tv`,
+   * as the viewer's TV should show it now (`delaySeconds` back). Either is
+   * absent before the feeds have given a clock (baseball has none).
+   */
+  async clock(now: number): Promise<{ delaySeconds: number; live?: ClockReading; tv?: ClockReading }> {
+    const profile = await this.profile();
+    const game = User.current(profile);
+    const { delaySeconds } = profile.settings;
+    if (!game) return { delaySeconds };
+    const games = this.env.GAMES.getByName(resolveLeague(game.league));
+    const [live, tv] = await Promise.all([games.clockAt(game.key, now), games.clockAt(game.key, now - delaySeconds * 1000)]);
+    return { delaySeconds, ...(live ? { live } : {}), ...(tv ? { tv } : {}) };
+  }
+
+  /**
+   * The viewer's TV showed `clock` at `tappedAt`: the TV delay becomes how far
+   * that is behind the moment the game's timeline showed it.
+   */
+  async sync(clock: GameClock, tappedAt: number): Promise<{ delaySeconds: number; ahead: boolean }> {
+    const profile = await this.profile();
+    const game = User.current(profile);
+    if (!game) throw new Error("Follow a game first.");
+    const shown = await this.env.GAMES.getByName(resolveLeague(game.league)).timeOf(game.key, clock);
+    if (shown === undefined) throw new Error("Can't line up with that time yet. Try again once the game clock is running.");
+    const behind = (tappedAt - shown) / 1000;
+    if (behind > MAX_DELAY_SECONDS) throw new Error("That is more than 10 minutes behind the game. Check the time you tapped on.");
+    // A TV ahead of every feed (rare: stadium or over-the-air) can't be waited for.
+    const delaySeconds = Math.max(0, Math.round(behind * 10) / 10);
+    await this.saveDelay(profile, delaySeconds);
+    return { delaySeconds, ahead: behind < 0 };
+  }
+
+  /** Sets the TV delay alone, as the nudge buttons do. */
+  async setDelay(delaySeconds: number): Promise<number> {
+    if (!Number.isFinite(delaySeconds) || delaySeconds < 0 || delaySeconds > MAX_DELAY_SECONDS) {
+      throw new Error(`The TV delay must be between 0 and ${MAX_DELAY_SECONDS} seconds.`);
+    }
+    const rounded = Math.round(delaySeconds * 10) / 10;
+    await this.saveDelay(await this.profile(), rounded);
+    return rounded;
+  }
+
+  private async saveDelay(profile: Profile, delaySeconds: number): Promise<void> {
+    await this.ctx.storage.put<Profile>("profile", { ...profile, settings: { ...profile.settings, delaySeconds } });
   }
 
   /**

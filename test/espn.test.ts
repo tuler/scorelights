@@ -27,6 +27,17 @@ describe("espn", () => {
     expect(games[0]?.teams.map((t) => [t.abbreviation, t.score])).toEqual([["NYG", 14], ["DAL", 7]]);
   });
 
+  it("reads the game clock of a live game, but not baseball's or a final's", () => {
+    const games = [
+      { id: "1", state: "in" as const, home: ["NYG", 7] as [string, number], away: ["DAL", 3] as [string, number], clock: [3, 252] as [number, number] },
+      { id: "2", state: "post" as const, home: ["KC", 7] as [string, number], away: ["BUF", 3] as [string, number], clock: [4, 0] as [number, number] },
+    ];
+    const [live, final] = parseScoreboard(board(games), "football/nfl");
+    expect(live?.clock).toEqual({ period: 3, seconds: 252 });
+    expect(final?.clock).toBeUndefined();
+    expect(parseScoreboard(board(games), "baseball/mlb")[0]?.clock).toBeUndefined();
+  });
+
   it("returns nothing for junk input", () => {
     expect(parseScoreboard(null, "football/nfl")).toEqual([]);
     expect(parseScoreboard({ events: "nope" }, "football/nfl")).toEqual([]);

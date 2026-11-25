@@ -86,7 +86,7 @@ describe("Tracker persistence", () => {
 });
 
 describe("planEffects", () => {
-  const events = new Tracker();
+  const events = new Tracker(() => 1_000);
   events.update(espn([live("1", ["NYG", 0], ["DAL", 0]), live("2", ["KC", 0], ["BUF", 0])]), "espn");
   const batch = events.update(espn([live("1", ["NYG", 6], ["DAL", 3]), live("2", ["KC", 1], ["BUF", 0])]), "espn");
 
@@ -98,6 +98,15 @@ describe("planEffects", () => {
       ["DAL field goal", 31_000, 5],
     ]);
     expect(planned[0]?.colors[0]).toEqual(hexToXy("0B2265"));
+  });
+
+  it("times each effect from its play, or from now when the play time is unknown", () => {
+    const settings = parseSettings({ group: "Den", delaySeconds: 20 });
+    const [score] = batch.filter((e) => e.type === "score");
+    const late = planEffects([{ ...score!, playAt: 5_000 }], settings, following("NYG", "DAL"), 40_000);
+    expect(late[0]?.dueAt).toBe(25_000);
+    const { playAt: _, ...untimed } = score!;
+    expect(planEffects([untimed], settings, following("NYG", "DAL"), 40_000)[0]?.dueAt).toBe(60_000);
   });
 
   it("leaves out disabled effects and other games", () => {

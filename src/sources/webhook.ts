@@ -5,7 +5,7 @@
  * Web APIs (WebCrypto for signatures), so the same handler sits behind
  * `Bun.serve` locally and inside the Worker's Games Durable Object.
  */
-import { sportOf, type GameSnapshot, type GameState } from "../espn.ts";
+import { sportOf, type GameClock, type GameSnapshot, type GameState } from "../espn.ts";
 import type { SportsEvent } from "../events.ts";
 import { canonicalAbbreviation, findNflTeam, NFL_LEAGUE } from "../nfl.ts";
 import type { Tracker } from "../tracker.ts";
@@ -96,15 +96,30 @@ function parseGenericGame(raw: unknown, league: string): GameSnapshot {
     throw new WebhookError("home and away are the same team");
   }
   const state: GameState = g.state;
+  const clock = parseClock(g.clock);
   return {
     id: "",
     name: `${teams[1]!.abbreviation} @ ${teams[0]!.abbreviation}`,
     sport: sportOf(league),
     state,
     detail: typeof g.detail === "string" && g.detail ? g.detail : state,
+    ...(clock ? { clock } : {}),
     teams,
     asOf: at,
   };
+}
+
+function parseClock(raw: unknown): GameClock | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const c = (typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const { period, seconds } = c;
+  if (typeof period !== "number" || !Number.isInteger(period) || period < 1 || period > 20) {
+    throw new WebhookError('"clock.period" must be a period number from 1');
+  }
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0 || seconds > 10_000) {
+    throw new WebhookError('"clock.seconds" must be the seconds on the clock');
+  }
+  return { period, seconds };
 }
 
 /**
@@ -113,8 +128,12 @@ function parseGenericGame(raw: unknown, league: string): GameSnapshot {
  * small relay in front of any provider, or the ESPN feeder, sends.
  *
  *   { "state": "in", "detail": "4:12 - 3rd", "at": "2026-11-22T18:41:07Z",
+ *     "clock": { "period": 3, "seconds": 252 },
  *     "home": { "team": "NYG", "score": 7, "color": "0b2265" },
  *     "away": { "team": "DAL", "score": 0 } }
+ *
+ * `clock` is the game clock as the TV shows it, at the moment the update is
+ * about: for a score, the clock of the play itself if the sender knows it.
  *
  * Signed with `X-Timestamp` (Unix seconds) and
  * `X-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>">`.

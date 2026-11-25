@@ -20,6 +20,19 @@ export interface TeamSide {
   alternateColor?: string;
 }
 
+/**
+ * A game clock reading: the period (1-based; overtime continues the count) and
+ * the seconds on the clock, as a TV shows it. Soccer's clock counts up from
+ * kickoff; every other clocked sport counts down to zero each period.
+ */
+export interface GameClock {
+  period: number;
+  seconds: number;
+}
+
+/** Whether this sport's clock counts up (soccer) rather than down. */
+export const clockCountsUp = (sport: Sport): boolean => sport === "soccer";
+
 export interface GameSnapshot {
   id: string;
   name: string;
@@ -27,6 +40,8 @@ export interface GameSnapshot {
   state: GameState;
   /** Human-readable clock, e.g. "4:12 - 3rd". */
   detail: string;
+  /** The game clock, when the source gives one (not in baseball). */
+  clock?: GameClock;
   teams: TeamSide[];
   /** When the source observed this state (ms since epoch), if it says. */
   asOf?: number;
@@ -167,6 +182,15 @@ function parseTeam(v: unknown, leaguePath: string): TeamSide | undefined {
   };
 }
 
+/** ESPN's `status.clock` (seconds, fractions in the last minute) and `status.period`. */
+function clockOf(status: Json | undefined): { clock?: GameClock } {
+  const period = status?.period;
+  const seconds = status?.clock;
+  if (typeof period !== "number" || !Number.isInteger(period) || period < 1) return {};
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return {};
+  return { clock: { period, seconds } };
+}
+
 export function parseScoreboard(json: unknown, leaguePath: string): GameSnapshot[] {
   const sport = sportOf(leaguePath);
   const games: GameSnapshot[] = [];
@@ -179,7 +203,8 @@ export function parseScoreboard(json: unknown, leaguePath: string): GameSnapshot
       .map((c) => parseTeam(c, leaguePath))
       .filter((t): t is TeamSide => t !== undefined);
     if (teams.length !== 2) continue;
-    const type = obj(obj(competition.status ?? event.status)?.type);
+    const status = obj(competition.status ?? event.status);
+    const type = obj(status?.type);
     const state = type?.state === "in" || type?.state === "post" ? type.state : "pre";
     const startsAt = Date.parse(str(event.date) ?? str(competition.date) ?? "");
     games.push({
@@ -188,6 +213,7 @@ export function parseScoreboard(json: unknown, leaguePath: string): GameSnapshot
       sport,
       state,
       detail: str(type?.shortDetail) ?? str(type?.detail) ?? state,
+      ...(state === "in" && sport !== "baseball" ? clockOf(status) : {}),
       teams,
       ...(Number.isNaN(startsAt) ? {} : { startsAt }),
     });

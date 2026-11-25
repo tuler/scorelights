@@ -1,7 +1,7 @@
 /**
  * The Polymarket relay: one object holding a WebSocket to Polymarket's sports
  * feed while anyone follows a game it covers. Each update for a followed game
- * whose score or state changed is posted, signed, to that league's webhook
+ * whose score, state or clock changed is posted, signed, to that league's webhook
  * receiver, like the ESPN feeder's deliveries; the tracker merges the two, so
  * whichever is first fires the play.
  *
@@ -37,7 +37,7 @@ const idOf = (g: Pick<WatchedGame, "league" | "key">) => `${g.league}|${g.key}`;
 export class Polymarket extends DurableObject<Env> {
   private socket?: WebSocket;
   private watching?: Watched;
-  /** Last forwarded "state score" per watched game, so clock ticks are not posted. */
+  /** Last forwarded "state score clock" per watched game, so repeats are not posted. */
   private readonly sent = new Map<string, string>();
   private connectedAt?: number;
   private lastMessageAt = 0;
@@ -121,7 +121,8 @@ export class Polymarket extends DurableObject<Env> {
         if (Object.values(this.watching ?? {}).some((w) => w.league === game.league)) this.noteUnmatched(`${game.league} ${game.away} @ ${game.home}`);
         continue;
       }
-      const seen = `${game.state} ${game.awayScore}-${game.homeScore}`;
+      // Clock changes too: they are the samples the game's timeline reads the clock from.
+      const seen = `${game.state} ${game.awayScore}-${game.homeScore} ${game.clock?.period}/${game.clock?.seconds}`;
       if (this.sent.get(watched.key) === seen) continue;
       this.sent.set(watched.key, seen);
       this.ctx.waitUntil(this.forward(polymarketPayload(game, watched), watched, game.state === "post"));

@@ -1,5 +1,6 @@
-import { type GameSnapshot, type GameState, type TeamSide } from "./espn.ts";
+import { type GameClock, type GameSnapshot, type GameState, type TeamSide } from "./espn.ts";
 import { detectEvents, type SportsEvent } from "./events.ts";
+import { Timeline, type ClockReading, type TimelineState } from "./timeline.ts";
 
 /**
  * How long a lower score from a different source is treated as stale rather
@@ -23,19 +24,29 @@ export const gameKey = (g: GameSnapshot): string => g.teams.map(teamKey).sort().
 export interface TrackerState {
   games: {
     game: GameSnapshot;
-    scoredBy: [string, { source: string; at: number }][];
+    scoredBy: [string, ScoredBy][];
     sources: [string, number][];
     seenAt: number;
+    timeline?: TimelineState;
   }[];
+}
+
+/** Which source set a team's current score, when, and which other sources have reported it since. */
+interface ScoredBy {
+  source: string;
+  at: number;
+  confirmedBy?: string[];
+  /** Set by the game's first sighting rather than a score change, so nothing to learn a lag from. */
+  baseline?: true;
 }
 
 interface Tracked {
   game: GameSnapshot;
-  /** Which source set each team's current score, and when. */
-  scoredBy: Map<string, { source: string; at: number }>;
+  scoredBy: Map<string, ScoredBy>;
   /** Sources that currently list this game, and the newest `asOf` each sent. */
   sources: Map<string, number>;
   seenAt: number;
+  timeline: Timeline;
 }
 
 /**
@@ -64,6 +75,7 @@ export class Tracker {
         scoredBy: new Map(t.scoredBy),
         sources: new Map(t.sources),
         seenAt: t.seenAt,
+        timeline: new Timeline(t.game.sport, t.timeline),
       });
     }
     return tracker;
@@ -76,12 +88,23 @@ export class Tracker {
         scoredBy: [...t.scoredBy],
         sources: [...t.sources],
         seenAt: t.seenAt,
+        timeline: t.timeline.save(),
       })),
     };
   }
 
   games(): GameSnapshot[] {
     return [...this.tracked.values()].map((t) => t.game);
+  }
+
+  /** The game `key`'s clock at timeline time `t`, if known. */
+  clockAt(key: string, t: number): ClockReading | undefined {
+    return this.tracked.get(key)?.timeline.clockAt(t);
+  }
+
+  /** When, on the game `key`'s timeline, its clock showed `clock` (see `Timeline.timeOf`). */
+  timeOf(key: string, clock: GameClock, now = this.now()): number | undefined {
+    return this.tracked.get(key)?.timeline.timeOf(clock, now);
   }
 
   /**
@@ -110,19 +133,24 @@ export class Tracker {
       const asOf = incoming.asOf ?? now;
       const known = this.tracked.get(key);
       if (!known) {
+        const timeline = new Timeline(incoming.sport);
+        if (incoming.clock && incoming.state === "in") timeline.observe(source, incoming.clock, now);
         this.tracked.set(key, {
           game: { ...incoming, id: key },
-          scoredBy: new Map(incoming.teams.map((t) => [teamKey(t), { source, at: now }])),
+          scoredBy: new Map(incoming.teams.map((t) => [teamKey(t), { source, at: now, baseline: true as const }])),
           sources: new Map([[source, asOf]]),
           seenAt: now,
+          timeline,
         });
         continue;
       }
       if (asOf < (known.sources.get(source) ?? 0)) continue; // a late redelivery
       known.sources.set(source, asOf);
       known.seenAt = now;
+      const playAt = known.timeline.playAt(source, now, incoming.clock);
+      if (incoming.clock && incoming.state === "in") known.timeline.observe(source, incoming.clock, now);
       const merged = this.merge(known, incoming, source, now);
-      events.push(...detectEvents(known.game, merged));
+      events.push(...detectEvents(known.game, merged).map((e) => ({ ...e, playAt })));
       known.game = merged;
     }
 
@@ -137,8 +165,16 @@ export class Tracker {
     const forward = RANK[incoming.state] >= RANK[known.game.state];
     const teams = known.game.teams.map((mine) => {
       const theirs = incoming.teams.find((t) => teamKey(t) === teamKey(mine));
-      if (!theirs || theirs.score === mine.score) return mine;
+      if (!theirs) return mine;
       const set = known.scoredBy.get(teamKey(mine));
+      if (theirs.score === mine.score) {
+        // A second source catching up on a score: how far behind it runs.
+        if (set && !set.baseline && set.source !== source && !set.confirmedBy?.includes(source)) {
+          set.confirmedBy = [...(set.confirmedBy ?? []), source];
+          if (now - set.at < STALE_SCORE_MS) known.timeline.noteLag(source, set.source, now - set.at);
+        }
+        return mine;
+      }
       const lower = theirs.score < mine.score;
       if (lower && set && set.source !== source && now - set.at < STALE_SCORE_MS) return mine;
       known.scoredBy.set(teamKey(mine), { source, at: now });
@@ -148,6 +184,7 @@ export class Tracker {
       ...known.game,
       state: forward ? incoming.state : known.game.state,
       detail: forward ? incoming.detail : known.game.detail,
+      ...(forward && incoming.clock ? { clock: incoming.clock } : {}),
       teams,
     };
   }

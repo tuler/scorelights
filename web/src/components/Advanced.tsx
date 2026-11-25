@@ -1,4 +1,4 @@
-/** The settings most people never touch: how the bridge flashes, and each effect. */
+/** The settings most people never touch: the TV delay by number, how the bridge flashes, and each effect. */
 import { Group, NumberInput, Radio, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
 import type { Effect, Settings } from "../api.ts";
 import { effectKeysFor, LABELS } from "../effects.ts";
@@ -17,6 +17,19 @@ export function Advanced({ settings, sport, onChange }: Props) {
 
   return (
     <Stack gap="xl">
+      <NumberInput
+        label="TV delay"
+        description="How long flashes wait after each play. Syncing with your TV sets it for you."
+        value={settings.delaySeconds}
+        onChange={(v) => onChange({ ...settings, delaySeconds: Math.max(0, Math.min(600, Number(v) || 0)) })}
+        min={0}
+        max={600}
+        step={1}
+        decimalScale={1}
+        suffix=" seconds"
+        maw={220}
+      />
+
       <Radio.Group
         label="How to flash"
         value={settings.effectMode}

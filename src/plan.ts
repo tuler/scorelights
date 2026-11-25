@@ -17,7 +17,11 @@ export interface PlannedEffect {
   colors: XY[];
 }
 
-/** The followed game's events, as effects due `delaySeconds` from `now`. Disabled ones are left out. */
+/**
+ * The followed game's events, as effects due `delaySeconds` after each play
+ * (its `playAt` on the game's timeline, or `now` if unknown). Disabled ones
+ * are left out.
+ */
 export function planEffects(
   events: SportsEvent[],
   settings: Settings,
@@ -25,9 +29,9 @@ export function planEffects(
   now: number,
 ): PlannedEffect[] {
   const league = resolveLeague(game.league);
-  // Due at a fixed time, so the TV delay is not added once per queued effect.
-  const dueAt = now + settings.delaySeconds * 1000;
   return events.flatMap((event) => {
+    // From the play, not from when it reached us: a late report is not flashed late.
+    const dueAt = Math.round((event.playAt ?? now) + settings.delaySeconds * 1000);
     const mine = forGame(event, game.key);
     const effect = mine && effectFor(settings, mine.keys);
     if (!mine || !effect) return [];

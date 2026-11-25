@@ -102,6 +102,24 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+/** A game clock reading: period from 1 (overtime continues the count) and the seconds shown. */
+export interface ClockReading {
+  period: number;
+  seconds: number;
+  running: boolean;
+}
+
+/** The followed game's clock, from `GET /api/clock`. */
+export interface ClockState {
+  /** Server time of the readings (ms since epoch). */
+  at: number;
+  delaySeconds: number;
+  /** The newest the feeds know. */
+  live?: ClockReading;
+  /** As the viewer's TV should show it, `delaySeconds` behind. */
+  tv?: ClockReading;
+}
+
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
   groups: () => call<Group[]>("GET", "/api/groups"),
@@ -113,6 +131,11 @@ export const api = {
   /** Without a team, the server uses the followed game's colours. */
   test: (effect: string, team?: Pick<Team, "abbreviation" | "color" | "alternateColor">) =>
     call<{ result: string }>("POST", "/api/test", { effect, team }),
+  clock: () => call<ClockState>("GET", "/api/clock"),
+  /** "My TV's clock shows this now": sets the TV delay. `ahead`: the TV runs ahead of every feed. */
+  sync: (clock: Pick<ClockReading, "period" | "seconds">) =>
+    call<{ delaySeconds: number; ahead: boolean }>("POST", "/api/sync", { clock }),
+  setDelay: (delaySeconds: number) => call<{ delaySeconds: number }>("PUT", "/api/delay", { delaySeconds }),
   disconnect: () => call<{ ok: true }>("DELETE", "/api/me"),
   signOut: () => fetch("/auth/signout", { method: "POST" }),
 };

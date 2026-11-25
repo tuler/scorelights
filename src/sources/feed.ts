@@ -32,7 +32,7 @@ export function scoreboardPayload(games: GameSnapshot[], source = ESPN_SOURCE) {
     const home = g.teams.find((t) => t.homeAway === "home");
     const away = g.teams.find((t) => t.homeAway === "away");
     if (!home || !away) return [];
-    return [{ state: g.state, detail: g.detail, home: team(home), away: team(away) }];
+    return [{ state: g.state, detail: g.detail, ...(g.clock ? { clock: g.clock } : {}), home: team(home), away: team(away) }];
   });
   return { source, complete: true, games: playable };
 }

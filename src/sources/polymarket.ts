@@ -14,7 +14,7 @@
  * is sent on with those. A team plays one game at a time, so one side that
  * matches exactly (and an other side that plausibly does) is enough.
  */
-import type { GameState } from "../espn.ts";
+import { sportOf, type GameClock, type GameState } from "../espn.ts";
 
 export const POLYMARKET_SOURCE = "polymarket";
 /** `fetch` wants https; the server upgrades it. */
@@ -53,6 +53,11 @@ export interface PolymarketGame {
   state: GameState;
   /** Period and clock, e.g. "Q4 08:51". */
   detail: string;
+  /**
+   * The game clock. On a score it is the clock of the play itself, not of the
+   * moment the message was sent (checked against ESPN's play-by-play).
+   */
+  clock?: GameClock;
 }
 
 /** A game someone follows, by ESPN's abbreviations. */
@@ -68,6 +73,22 @@ export interface WatchedGame {
 }
 
 const SCORE = /^(\d+)-(\d+)$/;
+const PERIOD = /^(?:Q|P|H)(\d)$|^(\d)H$|^OT(\d*)$/;
+const MM_SS = /^(\d{1,3}):(\d{2})(?:\.\d+)?$/;
+/** Regular periods before overtime, which continues the count as ESPN does. */
+const REGULAR_PERIODS: Record<string, number> = { basketball: 4, football: 4, hockey: 3 };
+
+/** "Q4" + "05:14" as a clock. Breaks ("End Q2", "HT") and finals have none. */
+function parseClock(league: string, period: unknown, elapsed: unknown): GameClock | undefined {
+  const p = PERIOD.exec(String(period ?? "").trim());
+  const t = MM_SS.exec(String(elapsed ?? "").trim());
+  if (!p || !t) return undefined;
+  const regular = REGULAR_PERIODS[sportOf(league)];
+  const numbered = p[1] ?? p[2];
+  const n = numbered !== undefined ? Number(numbered) : regular !== undefined ? regular + Math.max(1, Number(p[3] || 1)) : undefined;
+  if (!n) return undefined;
+  return { period: n, seconds: Number(t[1]) * 60 + Number(t[2]) };
+}
 
 /** Reads one message. Anything else (other sports, tennis sets, esports maps, malformed) is undefined. */
 export function parsePolymarket(raw: unknown): PolymarketGame | undefined {
@@ -79,6 +100,7 @@ export function parsePolymarket(raw: unknown): PolymarketGame | undefined {
   if (!score) return undefined;
   const state: GameState = m.ended === true ? "post" : m.live === true ? "in" : "pre";
   const detail = [m.period, m.elapsed].filter((v) => typeof v === "string" && v).join(" ") || String(m.status ?? state);
+  const clock = state === "in" ? parseClock(league, m.period, m.elapsed) : undefined;
   return {
     league,
     home: m.homeTeam.trim().toUpperCase(),
@@ -87,6 +109,7 @@ export function parsePolymarket(raw: unknown): PolymarketGame | undefined {
     homeScore: Number(score[2]),
     state,
     detail,
+    ...(clock ? { clock } : {}),
   };
 }
 
@@ -118,6 +141,7 @@ export function polymarketPayload(game: PolymarketGame, watched: WatchedGame) {
       {
         state: game.state,
         detail: game.detail,
+        ...(game.clock ? { clock: game.clock } : {}),
         home: { team: watched.home, score: game.homeScore },
         away: { team: watched.away, score: game.awayScore },
       },

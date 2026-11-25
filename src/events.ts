@@ -14,11 +14,18 @@ export type ScoreKind =
  * Something that happened in a game, said the same way for everyone. Who
  * cares about it is decided later, per viewer, by `forGame`.
  */
-export type SportsEvent =
+export type SportsEvent = (
   | { type: "game_start"; game: GameSnapshot }
   | { type: "score"; kind: ScoreKind; points: number; team: TeamSide; game: GameSnapshot }
   /** `winner` is absent for a draw. */
-  | { type: "game_end"; winner?: TeamSide; game: GameSnapshot };
+  | { type: "game_end"; winner?: TeamSide; game: GameSnapshot }
+) & {
+  /**
+   * When it happened, on the game's timeline (ms since epoch; see
+   * `Timeline`). Set by the tracker; absent where events are made directly.
+   */
+  playAt?: number;
+};
 
 /**
  * Name a score change from the size of the jump alone.

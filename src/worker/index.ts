@@ -18,6 +18,9 @@
  *   PUT  /api/settings             save settings
  *   PUT  /api/game                 follow one game, { "league", "key" }, until its final
  *   DELETE /api/game               stop following
+ *   GET  /api/clock                the followed game's clock as the TV should show it now
+ *   POST /api/sync                 "my TV shows this now", { "clock": { "period", "seconds" } }: sets the TV delay
+ *   PUT  /api/delay                set the TV delay alone, { "delaySeconds" }
  *   POST /api/test                 play one effect now, { "effect", "team"? }
  *   DELETE /api/me                 disconnect and forget this bridge
  *
@@ -249,6 +252,30 @@ async function route(req: Request, env: Env): Promise<Response> {
       case "DELETE /api/game":
         await user.unfollow();
         return json({ ok: true });
+      case "GET /api/clock":
+        return json({ at: Date.now(), ...(await user.clock(Date.now())) });
+      case "POST /api/sync": {
+        // The tap's moment is when it reached us; the trip here is a fraction of a second.
+        const tappedAt = Date.now();
+        const b = await body(req);
+        const clock = b.clock as { period?: unknown; seconds?: unknown } | undefined;
+        const period = Number(clock?.period);
+        const seconds = Number(clock?.seconds);
+        if (!Number.isInteger(period) || period < 1 || !Number.isFinite(seconds) || seconds < 0) {
+          throw new HttpError(400, 'need { "clock": { "period", "seconds" } }');
+        }
+        try {
+          return json(await user.sync({ period, seconds }, tappedAt));
+        } catch (err) {
+          throw new HttpError(422, err instanceof Error ? err.message : String(err));
+        }
+      }
+      case "PUT /api/delay":
+        try {
+          return json({ delaySeconds: await user.setDelay(Number((await body(req)).delaySeconds)) });
+        } catch (err) {
+          throw new HttpError(422, err instanceof Error ? err.message : String(err));
+        }
       case "POST /api/test": {
         const b = await body(req);
         const team = (b.team ?? {}) as { abbreviation?: unknown; color?: unknown; alternateColor?: unknown };

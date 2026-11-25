@@ -43,7 +43,7 @@ The bridge can also be reached through Hue's cloud instead of the LAN, which is 
 | `poll` | `true` | Poll ESPN's scoreboard |
 | `pollSeconds` | `10` | Poll interval while a game is live (minimum 5) |
 | `webhook` | off | Receive pushed updates: `{ "host", "port", "path", "adapter" }`, see [Score sources](#score-sources) |
-| `delaySeconds` | `0` | Hold effects back to match a delayed TV stream |
+| `delaySeconds` | `0` | Hold effects back this long after each play, to match a delayed TV stream |
 | `effectMode` | `signal` | `signal` lets the bridge run the flash and restore the lights. `pulse` flashes by hand, for lights that ignore signaling |
 | `effects` | see below | Per-event overrides |
 
@@ -111,7 +111,7 @@ Because the colours are built in, `test` works for any NFL team whether or not i
 
 ## Limits
 
-- **The feed can run ahead of or behind your TV.** `delaySeconds` fixes a feed that spoils the play. Nothing fixes a feed that is late.
+- **The feed can run ahead of or behind your TV.** `delaySeconds` fixes a feed that spoils the play, counted from the play itself (from the score's game clock where the feed gives one), so a score that reaches us late is not flashed late too. Nothing fixes a feed slower than your TV.
 - **ESPN's scoreboard is undocumented** and can change or lag without notice. `src/espn.ts` is the only file that knows its shape.
 - **Only games on ESPN's current board can be picked.** For most leagues that is one US day, and it rolls over during the US morning, so late at night tonight's games are not listed yet. The NFL board covers the whole week.
 - **Two games between the same teams on one scoreboard**, such as a baseball doubleheader, are read as one game.
@@ -128,9 +128,9 @@ The hosted version runs at [scorelights.app](https://scorelights.app), as the Wo
 - **Games** (a Durable Object per league) holds the shared tracker behind the webhook receiver at `POST /webhook/<league>`, and who follows which game. Game state is the same for everyone; each user gets only their game's events, and is let go at its final.
 - **Feeder** (one per league) polls ESPN on an alarm, every 10 s while a game is live, and posts the board to that receiver, signed, like any other score source. It stops when nobody in the league follows a game.
 - **Polymarket** (one relay) holds a WebSocket to [Polymarket's sports feed](https://docs.polymarket.com/market-data/websocket/sports) while anyone follows an NFL, NBA, WNBA, NHL or MLB game. It posts each followed game's score changes to the same receiver as `source: "polymarket"`. In basketball it has the score a few seconds after the play, where ESPN's scoreboard takes 10–30 s; the tracker fires whichever arrives first, once. It closes the socket when every watched game has ended.
-- **User** (one per bridge) keeps that bridge's settings, the game it follows and its Hue Remote API tokens. It holds each effect for the TV delay, plays it from an alarm, and stops following when the final arrives (or 12 hours after kickoff).
+- **User** (one per bridge) keeps that bridge's settings, the game it follows and its Hue Remote API tokens. It holds each effect until the TV delay after its play, plays it from an alarm, and stops following when the final arrives (or 12 hours after kickoff).
 
-The logo, icons and brand colours are in [`brand/`](brand), with the icon licences and the credit line the site has to show. The page is a React + [Mantine](https://mantine.dev) app in [`web/`](web), built by Vite and served by the Worker as static assets. The main screen is kept simple (the game, the room, TV delay, test flash); effects and the flash mode sit under **Advanced**.
+The logo, icons and brand colours are in [`brand/`](brand), with the icon licences and the credit line the site has to show. The page is a React + [Mantine](https://mantine.dev) app in [`web/`](web), built by Vite and served by the Worker as static assets. The main screen is kept simple (the game, the room, syncing with your TV, test flash); the delay in seconds, effects and the flash mode sit under **Advanced**. Syncing asks you to tap when your TV's game clock shows a given time; the delay becomes how far that is behind the moment the feeds' clock showed it, and "Flashes early" / "Flashes late" nudge it a second at a time.
 
 Page views are counted with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/), which sets no cookies. Production builds include its beacon when `CF_BEACON_TOKEN` (the site token from the Web Analytics dashboard) is set in the shell or `.env`; without it, and under `web:dev` and Storybook, there is no beacon.
 

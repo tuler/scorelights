@@ -1,4 +1,4 @@
-import { Accordion, Alert, Box, Button, Group, NumberInput, Select, Stack, Text } from "@mantine/core";
+import { Accordion, Alert, Box, Button, Group, Select, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
 import { api, type FollowedGame, type Game, type Group as LightGroup, type Me, type Settings } from "../api.ts";
@@ -7,6 +7,7 @@ import { errorMessage, type Load } from "../load.ts";
 import { Advanced } from "./Advanced.tsx";
 import { GamePicker } from "./GamePicker.tsx";
 import { Section } from "./Section.tsx";
+import { TvSync } from "./TvSync.tsx";
 
 const LEAGUE_KEY = "hls.league";
 
@@ -55,6 +56,12 @@ export function SettingsScreen({ me }: { me: Me }) {
   };
 
   const dirty = JSON.stringify(settings) !== saved;
+
+  /** The sync card saved a new delay on its own: take it in without making the rest look unsaved. */
+  const delaySaved = (delaySeconds: number) => {
+    setSettings((s) => ({ ...s, delaySeconds }));
+    setSaved((json) => (json ? JSON.stringify({ ...(JSON.parse(json) as Settings), delaySeconds }) : json));
+  };
 
   const save = async (quiet = false): Promise<boolean> => {
     if (!settings.group) {
@@ -173,17 +180,8 @@ export function SettingsScreen({ me }: { me: Me }) {
         )}
       </Section>
 
-      <Section title="TV delay" description="Streams run behind the live feed. Hold flashes back so they don't spoil the play.">
-        <NumberInput
-          size="md"
-          value={settings.delaySeconds}
-          onChange={(v) => setSettings({ ...settings, delaySeconds: Math.max(0, Math.min(600, Number(v) || 0)) })}
-          min={0}
-          max={600}
-          suffix=" seconds"
-          maw={200}
-          aria-label="TV delay in seconds"
-        />
+      <Section title="Sync with your TV" description="TV and streams run behind the game. Flashes wait for your TV, so they don't spoil the play.">
+        <TvSync sport={sport} delaySeconds={settings.delaySeconds} following={Boolean(game)} onDelay={delaySaved} />
       </Section>
 
       <Accordion variant="separated" radius="lg">
@@ -191,7 +189,7 @@ export function SettingsScreen({ me }: { me: Me }) {
           <Accordion.Control>
             <Text fw={600}>Advanced</Text>
             <Text c="dimmed" size="sm">
-              Effects and how the bridge flashes
+              The TV delay in seconds, effects and how the bridge flashes
             </Text>
           </Accordion.Control>
           <Accordion.Panel>

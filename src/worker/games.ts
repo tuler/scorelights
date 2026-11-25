@@ -5,6 +5,7 @@
  * until its final. Nothing else here depends on any user's choices.
  */
 import { DurableObject } from "cloudflare:workers";
+import type { GameClock } from "../espn.ts";
 import type { SportsEvent } from "../events.ts";
 import { createWebhookHandler, genericAdapter } from "../sources/webhook.ts";
 import { gameKey, Tracker, type TrackerState } from "../tracker.ts";
@@ -90,6 +91,16 @@ export class Games extends DurableObject<Env> {
   async unsubscribe(userId: string): Promise<void> {
     const { [userId]: _, ...rest } = await this.subscribers();
     await this.ctx.storage.put("subscribers", rest);
+  }
+
+  /** The game `key`'s clock at timeline time `t`. */
+  async clockAt(key: string, t: number) {
+    return (await this.load()).clockAt(key, t);
+  }
+
+  /** When, on the game `key`'s timeline, its clock showed `clock`. */
+  async timeOf(key: string, clock: GameClock): Promise<number | undefined> {
+    return (await this.load()).timeOf(key, clock);
   }
 
   async hasSubscribers(): Promise<boolean> {

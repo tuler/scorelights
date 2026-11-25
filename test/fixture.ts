@@ -11,6 +11,8 @@ export interface FakeGame {
   away: [string, number];
   /** Scheduled start, ms since epoch. */
   startsAt?: number;
+  /** ESPN's `status.period` and `status.clock` (seconds). */
+  clock?: [number, number];
 }
 
 const competitor = (homeAway: "home" | "away", [abbr, score]: [string, number]) => ({
@@ -29,7 +31,10 @@ export function board(games: FakeGame[]) {
         ...(g.startsAt === undefined ? {} : { date: new Date(g.startsAt).toISOString().replace(/:00\.000Z$/, "Z") }),
         competitions: [
           {
-            status: { type: { state: g.state, shortDetail: g.state === "in" ? "4:12 - 3rd" : g.state } },
+            status: {
+              type: { state: g.state, shortDetail: g.state === "in" ? "4:12 - 3rd" : g.state },
+              ...(g.clock ? { period: g.clock[0], clock: g.clock[1] } : {}),
+            },
             competitors: [competitor("home", g.home), competitor("away", g.away)],
           },
         ],

@@ -42,6 +42,16 @@ describe("webhook handler", () => {
     expect(tracker.games()[0]).toMatchObject({ name: "DAL @ NYG", sport: "football" });
   });
 
+  it("reads the game clock, and refuses a malformed one", async () => {
+    const { post, tracker } = receiver();
+    expect((await post(update(0, 0, "in", { clock: { period: 2, seconds: 431.5 } }))).status).toBe(200);
+    expect(tracker.games()[0]?.clock).toEqual({ period: 2, seconds: 431.5 });
+    expect(tracker.timeOf("dal-nyg", { period: 2, seconds: 431.5 })).toBeNumber();
+    for (const clock of [{ period: 0, seconds: 10 }, { period: 2 }, { period: 2, seconds: -1 }, "4:12"]) {
+      expect((await post(update(0, 0, "in", { clock }))).status).toBe(422);
+    }
+  });
+
   it("accepts a list of games", async () => {
     const { post, keys } = receiver();
     const kc = (score: number) => ({ state: "in", home: { team: "KC", score }, away: { team: "BUF", score: 0 } });
